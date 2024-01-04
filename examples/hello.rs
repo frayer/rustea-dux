@@ -1,5 +1,11 @@
-use rustea::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-use rustea::{command, App, Command, Message};
+use std::io;
+
+use crossterm::style::Print;
+use crossterm::terminal::{Clear, ClearType};
+use crossterm::{cursor, execute, terminal};
+
+use rusteadux::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use rusteadux::{command, App, Command, Message};
 
 struct Model {
     last_key: Option<char>,
@@ -27,13 +33,30 @@ impl App for Model {
         None
     }
 
-    fn view(&self) -> String {
-        format!("Hello! You pressed: {:?}", self.last_key)
+    fn view(&self) {
+        let msg = format!("Hello! You pressed: {:?}", self.last_key);
+
+        execute!(
+            io::stdout(),
+            cursor::MoveTo(0, 0),
+            Print(msg),
+            Clear(ClearType::UntilNewLine),
+        )
+        .unwrap();
     }
 }
 
 fn main() {
     let model = Model { last_key: None };
 
-    rustea::run(model).unwrap();
+    execute!(
+        io::stdout(),
+        terminal::EnterAlternateScreen,
+        cursor::Hide,
+        terminal::Clear(ClearType::All),
+        cursor::MoveTo(0, 0)
+    )
+    .unwrap();
+
+    rusteadux::run(model).unwrap();
 }

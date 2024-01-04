@@ -18,8 +18,7 @@ use crossterm::{
     cursor,
     event::{read, Event},
     execute,
-    style::Print,
-    terminal::{disable_raw_mode, enable_raw_mode, Clear, ClearType},
+    terminal::{disable_raw_mode, enable_raw_mode},
 };
 
 /// Any boxed type that may or may not contain data.
@@ -31,17 +30,20 @@ use crossterm::{
 /// # Example
 ///
 /// ```
+/// use std::any::Any;
+///
 /// // the type of your message
 /// struct HttpResponse(String);
 ///
 /// // the boxed message itself
-/// let http_response_message = Box::new(HttpResponse("Hello World".to_string()));
+/// let http_response_message: Box<dyn Any + Send> = Box::new(HttpResponse("Hello World".to_string()));
 ///
 /// // determining the type of your message, and extracting the response
 /// if let Some(res) = http_response_message.downcast_ref::<HttpResponse>() {
 ///     // do something with the response
-///     // for example, setting it in the model to be rendered
-///     model.response = Some(res);
+///     // for example, setting it in the model to be rendered:
+///     //
+///     // model.response = Some(res);
 /// }
 /// ```
 pub type Message = Box<dyn Any + Send>;
@@ -54,6 +56,10 @@ pub type Message = Box<dyn Any + Send>;
 /// # Example
 ///
 /// ```
+/// use rusteadux::Command;
+///
+/// struct HttpResponse(String);
+///
 /// // a constructor function
 /// fn make_request_command(url: &str) -> Command {
 ///     // it's okay to block since commands are multi threaded
@@ -88,7 +94,7 @@ pub trait App {
     }
 
     fn update(&mut self, msg: Message) -> Option<Command>;
-    fn view(&self) -> String;
+    fn view(&self);
 }
 
 /// Enables mouse capture events on your application.
@@ -120,6 +126,7 @@ pub fn run(app: impl App) -> Result<()> {
             Event::Key(event) => msg_tx.send(Box::new(event)).unwrap(),
             Event::Mouse(event) => msg_tx.send(Box::new(event)).unwrap(),
             Event::Resize(x, y) => msg_tx.send(Box::new(ResizeEvent(x, y))).unwrap(),
+            _ => (),
         }
     });
 
@@ -138,8 +145,7 @@ pub fn run(app: impl App) -> Result<()> {
     });
 
     initialize(&mut stdout, &app, cmd_tx2)?;
-    let mut prev = normalized_view(&app);
-    execute!(stdout, Print(&prev))?;
+    app.view();
 
     loop {
         let msg = msg_rx.recv().unwrap();
@@ -154,10 +160,7 @@ pub fn run(app: impl App) -> Result<()> {
             cmd_tx.send(cmd).unwrap();
         }
 
-        let curr = normalized_view(&app);
-        clear_lines(&mut stdout, prev.matches("\r\n").count())?;
-        execute!(stdout, Print(&curr))?;
-        prev = curr;
+        app.view();
     }
 
     deinitialize(&mut stdout)
@@ -170,28 +173,6 @@ fn initialize(stdout: &mut Stdout, app: &impl App, cmd_tx: Sender<Command>) -> R
 
     enable_raw_mode()?;
     execute!(stdout, cursor::Hide)
-}
-
-fn normalized_view(app: &impl App) -> String {
-    let view = app.view();
-    let view = if !view.ends_with('\n') {
-        view + "\n"
-    } else {
-        view
-    };
-    view.replace('\n', "\r\n")
-}
-
-fn clear_lines(stdout: &mut Stdout, count: usize) -> Result<()> {
-    for _ in 0..count {
-        execute!(
-            stdout,
-            cursor::MoveToPreviousLine(1),
-            Clear(ClearType::CurrentLine)
-        )?;
-    }
-
-    Ok(())
 }
 
 fn deinitialize(stdout: &mut Stdout) -> Result<()> {

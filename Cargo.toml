@@ -1,18 +1,17 @@
 [package]
-name = "rustea"
-version = "0.1.6"
+name = "rusteadux"
+version = "0.0.1"
 edition = "2021"
 license = "MIT"
 description = "An easy-to-use TUI crate for Rust, based off of the Elm architecture."
-homepage = "https://github.com/lazops/rustea"
-documentation = "https://docs.rs/rustea"
+homepage = "https://github.com/frayer/rusteadux"
 readme = "README.md"
-repository = "https://github.com/lazops/rustea"
+repository = "https://github.com/frayer/rusteadux"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-crossterm = "0.23.2"
+crossterm = "0.27.0"
 
 [dev-dependencies]
 reqwest = { version = "0.11", features = ["blocking", "json"] }
