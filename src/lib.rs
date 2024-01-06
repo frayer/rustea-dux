@@ -3,20 +3,24 @@
 //! `rustea` is a small crate for easily creating cross-platform TUI applications.
 //! It is based off of the original [go-tea](https://github.com/tj/go-tea) created by TJ Holowaychuk.
 
-pub mod view_helper;
 pub extern crate crossterm;
 pub mod command;
+mod lock;
+pub mod view_helper;
+
+use crate::lock::Lock;
 
 use std::{
     any::Any,
     io::{stdout, Result, Stdout},
     sync::mpsc::{self, Sender},
     thread,
+    time::Duration,
 };
 
 use crossterm::{
     cursor,
-    event::{read, Event},
+    event::{poll, read, Event},
     execute,
     terminal::{disable_raw_mode, enable_raw_mode},
 };
@@ -64,7 +68,7 @@ pub type Message = Box<dyn Any + Send>;
 /// fn make_request_command(url: &str) -> Command {
 ///     // it's okay to block since commands are multi threaded
 ///     let text_response = reqwest::blocking::get(url).unwrap().text().unwrap();
-///     
+///
 ///     // the command itself
 ///     Box::new(move || Some(Box::new(HttpResponse(text_response))))
 /// }
@@ -72,6 +76,7 @@ pub type Command = Box<dyn FnOnce() -> Option<Message> + Send + 'static>;
 
 /// Event representing a terminal resize (x, y).
 /// Boxed as a message so it can be sent to the application.
+#[derive(Clone)]
 pub struct ResizeEvent(pub u16, pub u16);
 
 /// The trait your model must implement in order to be `run`.
@@ -115,6 +120,9 @@ pub fn run(app: impl App) -> Result<()> {
     let mut app = app;
     let mut stdout = stdout();
 
+    let event_lock = Lock::new();
+    let event_lock2 = Lock::clone(&event_lock);
+
     let (msg_tx, msg_rx) = mpsc::channel::<Message>();
     let msg_tx2 = msg_tx.clone();
 
@@ -122,6 +130,8 @@ pub fn run(app: impl App) -> Result<()> {
     let cmd_tx2 = cmd_tx.clone();
 
     thread::spawn(move || loop {
+        event_lock2.wait();
+
         match read().unwrap() {
             Event::Key(event) => msg_tx.send(Box::new(event)).unwrap(),
             Event::Mouse(event) => msg_tx.send(Box::new(event)).unwrap(),
@@ -149,7 +159,18 @@ pub fn run(app: impl App) -> Result<()> {
 
     loop {
         let msg = msg_rx.recv().unwrap();
-        if msg.is::<command::QuitMessage>() {
+        if msg.is::<command::PauseEventsMessage>() {
+            event_lock.lock();
+            clear_crossterm_events();
+            cmd_tx
+                .send(Box::new(|| Some(Box::new(command::EventsPausedMessage))))
+                .unwrap();
+        } else if msg.is::<command::UnpauseEventsMessage>() {
+            event_lock.unlock();
+            cmd_tx
+                .send(Box::new(|| Some(Box::new(command::EventsUnpausedMessage))))
+                .unwrap();
+        } else if msg.is::<command::QuitMessage>() {
             break;
         } else if msg.is::<command::BatchMessage>() {
             let batch = msg.downcast::<command::BatchMessage>().unwrap();
@@ -179,4 +200,10 @@ fn deinitialize(stdout: &mut Stdout) -> Result<()> {
     execute!(stdout, cursor::Show)?;
     execute!(stdout, crossterm::event::DisableMouseCapture)?;
     disable_raw_mode()
+}
+
+fn clear_crossterm_events() {
+    while let Ok(true) = poll(Duration::from_millis(0)) {
+        read().unwrap();
+    }
 }
